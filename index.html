@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Multi SO Dispatch Flow</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:sans-serif;background:#f5f7fa;min-height:100vh}
+
+.topbar{padding:10px 14px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:100}
+.new-btn{padding:7px 14px;background:#1D9E75;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500}
+.new-btn:hover{background:#0F6E56}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{padding:6px 14px;border:1px solid #ccc;border-radius:6px;cursor:pointer;background:#eee;font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px}
+.tab.active{background:#1D9E75;color:#fff;border-color:#0F6E56}
+.tab .del{font-size:10px;opacity:.6;cursor:pointer;padding:0 2px;border-radius:3px}
+.tab .del:hover{opacity:1;background:rgba(0,0,0,.15)}
+
+.container{padding:14px}
+.empty-state{text-align:center;color:#888;padding:60px 20px;font-size:14px}
+
+/* Info bar */
+.info-bar{display:flex;gap:20px;align-items:center;background:#f8fafb;border:0.5px solid #e0e4ea;border-radius:10px;padding:10px 16px;margin-bottom:14px;flex-wrap:wrap}
+.if{display:flex;flex-direction:column;gap:2px}
+.il{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+.iv{font-size:13px;font-weight:600;color:#111827}
+.edit-btn{margin-left:auto;padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;color:#374151}
+.edit-btn:hover{background:#f3f4f6}
+
+/* Progress */
+.prog-top{display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-bottom:5px}
+.prog-bar{height:5px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-bottom:14px}
+.prog-fill{height:100%;background:#1D9E75;border-radius:999px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+
+/* Flow row */
+.flow-scroll{overflow-x:auto;padding-bottom:6px}
+.flow-row{display:flex;align-items:flex-start;gap:0;min-width:max-content;padding:4px 2px 10px}
+
+.step-node{display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
+.step-box{width:90px;min-height:70px;border-radius:10px;border:1.5px solid #e0e4ea;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 5px;text-align:center;gap:3px;transition:all .35s cubic-bezier(.4,0,.2,1);background:#fff;cursor:default}
+.step-icon{font-size:18px;line-height:1}
+.step-label{font-size:10px;font-weight:500;color:#6b7280;line-height:1.3;transition:color .3s}
+.step-num{font-size:9px;color:#9ca3af}
+
+.step-node.done .step-box{border-color:#0F6E56;background:#E1F5EE}
+.step-node.done .step-label{color:#085041}
+.step-node.done .step-num{color:#0F6E56}
+.step-node.active .step-box{border-color:#1D9E75;border-width:2px;background:#E1F5EE;transform:translateY(-3px) scale(1.06)}
+.step-node.active .step-label{color:#085041;font-weight:600}
+.step-node.active .step-num{color:#1D9E75}
+.step-node.pending .step-box{opacity:.5}
+.step-node.branch-step .step-box{border-style:dashed}
+.step-node.purchase-step .step-box{border-color:#BA7517;background:#FAEEDA}
+.step-node.purchase-step .step-label{color:#412402}
+.step-node.purchase-step.active .step-box{border-color:#BA7517;border-width:2px}
+.step-node.whatsapp-step .step-box{border-color:#0F6E56}
+
+.done-check{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#1D9E75;display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(0);transition:all .3s cubic-bezier(.4,0,.2,1)}
+.step-node.done .done-check{opacity:1;transform:scale(1)}
+.wa-badge{position:absolute;top:-6px;left:-6px;width:16px;height:16px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
+
+.connector{width:28px;display:flex;align-items:center;justify-content:center;padding-top:35px;flex-shrink:0}
+.connector svg{width:28px;height:20px}
+.conn-line{stroke:#d1d5db;stroke-width:1.5;fill:none;transition:stroke .4s}
+.conn-line.active{stroke:#1D9E75}
+.conn-line.purchase{stroke:#BA7517}
+
+/* Action panel */
+.action-panel{background:#f8fafb;border:0.5px solid #e0e4ea;border-radius:10px;padding:14px 16px;margin-top:10px}
+.action-title{font-size:12px;font-weight:500;color:#374151;margin-bottom:10px}
+.action-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #d1d5db;background:#fff;color:#374151;transition:all .2s}
+.btn:hover{background:#f3f4f6}
+.btn:active{transform:scale(.97)}
+.btn-green{background:#1D9E75;color:#fff;border-color:#0F6E56}
+.btn-green:hover{background:#0F6E56}
+.btn-amber{background:#BA7517;color:#fff;border-color:#854F0B}
+.btn-amber:hover{background:#854F0B}
+.btn-blue{background:#2563EB;color:#fff;border-color:#1D4ED8}
+.btn-blue:hover{background:#1D4ED8}
+.btn-wa{background:#25D366;color:#fff;border-color:#128C7E;font-size:11px}
+.btn-wa:hover{background:#128C7E}
+.btn-back{font-size:11px;color:#6b7280}
+
+/* WA toast */
+.wa-toast{display:none;align-items:center;gap:8px;background:#E1F5EE;border:1px solid #0F6E56;border-radius:8px;padding:8px 12px;margin-top:10px;font-size:11px;color:#085041}
+.wa-toast.show{display:flex}
+.sent-badge{font-size:11px;color:#085041;background:#E1F5EE;padding:4px 10px;border-radius:999px;border:1px solid #a7d9c8}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:500}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:12px;padding:22px;width:330px;max-width:92vw;box-shadow:0 20px 50px rgba(0,0,0,.18)}
+.modal h3{font-size:15px;font-weight:600;margin-bottom:14px;color:#111827}
+.modal label{font-size:11px;color:#6b7280;display:block;margin-bottom:3px;margin-top:10px}
+.modal input{width:100%;padding:8px 10px;border-radius:7px;border:1px solid #d1d5db;background:#f9fafb;color:#111827;font-size:13px;outline:none}
+.modal input:focus{border-color:#1D9E75;box-shadow:0 0 0 2px rgba(29,158,117,.2)}
+.modal-actions{display:flex;gap:8px;margin-top:18px;justify-content:flex-end}
+
+/* Animations */
+@keyframes pulse-teal{0%,100%{box-shadow:0 0 0 0 rgba(29,158,117,.4)}70%{box-shadow:0 0 0 8px rgba(29,158,117,0)}}
+@keyframes pulse-amber{0%,100%{box-shadow:0 0 0 0 rgba(186,117,23,.4)}70%{box-shadow:0 0 0 8px rgba(186,117,23,0)}}
+@keyframes slide-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.step-node.active .step-box{animation:pulse-teal 1.8s ease-out infinite}
+.step-node.purchase-step.active .step-box{animation:pulse-amber 1.8s ease-out infinite}
+.animate-in{animation:slide-up .3s ease forwards}
+
+/* Completion banner */
+.complete-banner{background:linear-gradient(135deg,#1D9E75,#0F6E56);color:#fff;border-radius:10px;padding:18px 20px;margin-top:10px;text-align:center;font-size:15px;font-weight:600;letter-spacing:.01em}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="new-btn" onclick="createSO()">+ New SO</button>
+  <div class="tabs" id="tabs"></div>
+  <button class="new-btn" style="background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db;margin-left:auto" onclick="clearAllData()">🗑 Clear All</button>
+</div>
+
+<div class="container" id="container">
+  <p class="empty-state">👆 Click <strong>+ New SO</strong> to create a Sales Order and begin the dispatch flow.</p>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3>Sales Order Details</h3>
+    <label>Customer Name</label>
+    <input id="i-cust" placeholder="e.g. ABC Enterprises">
+    <label>SO Number</label>
+    <input id="i-so" placeholder="e.g. SO-2024-001">
+    <label>SO Date</label>
+    <input type="date" id="i-date">
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-green" onclick="saveModal()">Save & Start</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Step definitions ─────────────────────────────────────────────────────────
+const MAIN_STEPS = [
+  {id:'recv',     icon:'📥', label:'SO Received\n(Sales to OPS)',          num:'01'},
+  {id:'check',    icon:'🔍', label:'SO Status Check\n(OPS)',               num:'02'},
+  {id:'placed',   icon:'📦', label:'Items Placed\n(OPS)',                  num:'03'},
+  {id:'verify',   icon:'✅', label:'Items Verified\n(OPS)',                num:'04'},
+  {id:'avail',    icon:'⚡', label:'Availability\nCheck (OPS)',            num:'05', isBranch:true},
+  {id:'approval', icon:'🖊', label:'Approval for\nDispatch',               num:'06', hasWA:true, waGroup:'Director'},
+  {id:'transport',icon:'🚛', label:'Arrange Transport\n(OPS)',             num:'07'},
+  {id:'packing',  icon:'📋', label:'Packing List\n(OPS)',                  num:'08'},
+  {id:'billing',  icon:'🧾', label:'Billing\n(Accounts)',                  num:'09'},
+  {id:'billver',  icon:'🔎', label:'Verify vs Bill\n(OPS)',                num:'10'},
+  {id:'loading',  icon:'🏗', label:'Loading\n(OPS)',                       num:'11'},
+  {id:'vehicle',  icon:'🚚', label:'Vehicle Entry\n(Driver/OPS)',          num:'12'},
+  {id:'dispatch', icon:'🚀', label:'Dispatched',                           num:'13', isFinal:true},
+];
+
+const PURCHASE_STEP = {id:'purchase', icon:'🛒', label:'Purchase Order', num:'P1', isPurchase:true, hasWA:true, waGroup:'Purchase Team'};
+
+// ─── Global state ─────────────────────────────────────────────────────────────
+let flows   = [];
+let current = -1;
+
+// ─── Persistence helpers ──────────────────────────────────────────────────────
+function saveState() {
+  try {
+    const data = {
+      current,
+      flows: flows.map(f => ({
+        id: f.id,
+        state: {
+          cur:          f.state.cur,
+          done:         [...f.state.done],
+          soData:       f.state.soData,
+          branchChoice: f.state.branchChoice,
+          waSent:       [...f.state.waSent],
+          whReceived:   f.state.whReceived,
+        }
+      }))
+    };
+    localStorage.setItem('dispatchFlowState', JSON.stringify(data));
+  } catch(e) { /* storage unavailable */ }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('dispatchFlowState');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    current = data.current ?? -1;
+    flows = (data.flows || []).map(f => ({
+      id: f.id,
+      state: {
+        cur:          f.state.cur,
+        done:         new Set(f.state.done || []),
+        soData:       f.state.soData || {cust:'', so:'', date:''},
+        branchChoice: f.state.branchChoice ?? null,
+        waSent:       new Set(f.state.waSent || []),
+        whReceived:   f.state.whReceived ?? false,
+      }
+    }));
+  } catch(e) { flows = []; current = -1; }
+}
+
+function clearAllData() {
+  if (!confirm('Clear all Sales Orders and start fresh?')) return;
+  localStorage.removeItem('dispatchFlowState');
+  flows = []; current = -1;
+  renderTabs(); renderAll();
+}
+
+function freshState() {
+  return {
+    cur:          -1,
+    done:         new Set(),
+    soData:       {cust:'', so:'', date:''},
+    branchChoice: null,        // 'yes' | 'no'
+    waSent:       new Set(),
+    whReceived:   false,       // Item received in W/H flag
+  };
+}
+
+function visibleSteps(state) {
+  if (state.branchChoice === 'yes') {
+    return [...MAIN_STEPS.slice(0, 5), PURCHASE_STEP, ...MAIN_STEPS.slice(5)];
+  }
+  return MAIN_STEPS;
+}
+
+// ─── SO management ────────────────────────────────────────────────────────────
+function createSO() {
+  const id = 'SO ' + (flows.length + 1);
+  flows.push({id, state: freshState()});
+  current = flows.length - 1;
+  renderTabs();
+  renderAll();
+  openModal();
+  saveState();
+}
+
+function deleteSO(idx, e) {
+  e.stopPropagation();
+  flows.splice(idx, 1);
+  if (flows.length === 0) { current = -1; }
+  else if (current >= flows.length) { current = flows.length - 1; }
+  renderTabs();
+  renderAll();
+  saveState();
+}
+
+function switchSO(idx) {
+  current = idx;
+  renderTabs();
+  renderAll();
+  saveState();
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function renderTabs() {
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = '';
+  flows.forEach((f, i) => {
+    const t = document.createElement('div');
+    t.className = 'tab' + (i === current ? ' active' : '');
+    t.onclick   = () => switchSO(i);
+    t.innerHTML = `${f.id} <span class="del" title="Remove">✕</span>`;
+    t.querySelector('.del').onclick = (e) => deleteSO(i, e);
+    tabsEl.appendChild(t);
+  });
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────────
+function renderAll() {
+  const c = document.getElementById('container');
+  if (current === -1) {
+    c.innerHTML = '<p class="empty-state">👆 Click <strong>+ New SO</strong> to create a Sales Order and begin the dispatch flow.</p>';
+    return;
+  }
+
+  const S = flows[current].state;
+
+  const d = S.soData.date;
+  const dateStr = d && d !== '—' ? new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+
+  c.innerHTML = `
+    <div class="info-bar">
+      <div class="if"><span class="il">Customer</span><span class="iv" id="d-cust">${S.soData.cust || '—'}</span></div>
+      <div class="if"><span class="il">SO Number</span><span class="iv" id="d-so">${S.soData.so || '—'}</span></div>
+      <div class="if"><span class="il">SO Date</span><span class="iv" id="d-date">${dateStr}</span></div>
+      <button class="edit-btn" onclick="openModal()">✏ Edit SO Info</button>
+    </div>
+
+    <div class="prog-top">
+      <span>Step <span id="pc">0</span> of <span id="pt">0</span></span>
+      <span id="pp">0%</span>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="pf" style="width:0%"></div></div>
+
+    <div class="flow-scroll"><div class="flow-row" id="flow-row"></div></div>
+
+    <div class="wa-toast" id="wa-toast"><span>✓</span><span id="wa-msg">WhatsApp message triggered</span></div>
+
+    <div class="action-panel" id="action-panel">
+      <div class="action-title" id="a-title">Loading…</div>
+      <div class="action-btns" id="a-btns"></div>
+    </div>
+  `;
+
+  renderFlowRow();
+  updateProgress();
+  renderAction();
+}
+
+// ─── Flow row ─────────────────────────────────────────────────────────────────
+function renderFlowRow() {
+  if (current === -1) return;
+  const S     = flows[current].state;
+  const row   = document.getElementById('flow-row');
+  if (!row) return;
+  row.innerHTML = '';
+  const steps = visibleSteps(S);
+
+  steps.forEach((step, i) => {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'connector';
+      const past  = i <= S.cur || S.done.has(step.id);
+      const isPO  = step.id === 'purchase' || (steps[i-1] && steps[i-1].id === 'purchase');
+      const cls   = past ? (isPO ? 'conn-line purchase' : 'conn-line active') : 'conn-line';
+      conn.innerHTML = `<svg viewBox="0 0 28 20"><line class="${cls}" x1="0" y1="10" x2="20" y2="10"/><polyline class="${cls}" points="14,5 22,10 14,15" fill="none"/></svg>`;
+      row.appendChild(conn);
+    }
+
+    const isDone   = S.done.has(step.id);
+    const isActive = i === S.cur;
+
+    const node = document.createElement('div');
+    let cls    = `step-node ${isDone ? 'done' : isActive ? 'active' : 'pending'}`;
+    if (step.isBranch)   cls += ' branch-step';
+    if (step.isPurchase) cls += ' purchase-step';
+    if (step.hasWA)      cls += ' whatsapp-step';
+    if (isActive)        cls += ' animate-in';
+    node.className = cls;
+
+    const waBadge = step.hasWA ? `<span class="wa-badge">W</span>` : '';
+    // Render label with line breaks
+    const labelHtml = (step.label || '').replace(/\n/g, '<br>');
+    node.innerHTML = `
+      <div class="step-box">
+        <div class="done-check">
+          <svg width="9" height="9" viewBox="0 0 10 10">
+            <polyline points="2,5 4,8 8,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        ${waBadge}
+        <div class="step-icon">${step.icon}</div>
+        <div class="step-label">${labelHtml}</div>
+        <div class="step-num">${step.num}</div>
+      </div>`;
+    row.appendChild(node);
+  });
+}
+
+// ─── Progress bar ─────────────────────────────────────────────────────────────
+function updateProgress() {
+  if (current === -1) return;
+  const S     = flows[current].state;
+  const steps = visibleSteps(S);
+  const total = steps.length;
+  const done  = S.cur < 0 ? 0 : Math.min(S.cur, total);
+  const pct   = Math.round((done / total) * 100);
+  const pfEl  = document.getElementById('pf');
+  const ppEl  = document.getElementById('pp');
+  const pcEl  = document.getElementById('pc');
+  const ptEl  = document.getElementById('pt');
+  if (pfEl) pfEl.style.width = pct + '%';
+  if (ppEl) ppEl.textContent = pct + '%';
+  if (pcEl) pcEl.textContent = done;
+  if (ptEl) ptEl.textContent = total;
+}
+
+// ─── Action panel ─────────────────────────────────────────────────────────────
+function renderAction() {
+  if (current === -1) return;
+  const S     = flows[current].state;
+  const title = document.getElementById('a-title');
+  const btns  = document.getElementById('a-btns');
+  const panel = document.getElementById('action-panel');
+  if (!title || !btns) return;
+  btns.innerHTML = '';
+
+  // Not started yet
+  if (S.cur < 0) {
+    title.textContent = 'Enter SO details to begin the dispatch process.';
+    makeBtn(btns, '+ Enter SO Details', 'btn btn-green', openModal);
+    return;
+  }
+
+  const steps = visibleSteps(S);
+  const step  = steps[S.cur];
+
+  // All done
+  if (!step) {
+    panel.innerHTML = `<div class="complete-banner">🎉 ${flows[current].id} has been successfully dispatched!</div>`;
+    return;
+  }
+
+  // ── Branch step (Availability Check) ──────────────────────────────────────
+  if (step.isBranch) {
+    if (!S.branchChoice) {
+      title.textContent = 'Availability Check (OPS) — Are there any unavailable items?';
+      makeBtn(btns, '⚠ Yes — Items Unavailable (Raise PO)', 'btn btn-amber', () => {
+        S.branchChoice = 'yes';
+        renderFlowRow(); renderAction(); saveState();
+      });
+      makeBtn(btns, '✓ No — All Items Available (Proceed to Dispatch)', 'btn btn-green', () => {
+        S.branchChoice = 'no';
+        advance();
+      });
+    } else if (S.branchChoice === 'yes') {
+      title.textContent = 'Some items unavailable. Proceed to raise a Purchase Order.';
+      makeBtn(btns, 'Go to Purchase Order Step →', 'btn btn-amber', advance);
+    }
+    if (S.cur > 0) makeBtn(btns, '← Back', 'btn btn-back', goBack);
+    return;
+  }
+
+  // ── Purchase Order step ───────────────────────────────────────────────────
+  if (step.isPurchase) {
+    title.innerHTML = `<span style="color:#412402;font-weight:500">Purchase Order</span> — Raise PO for unavailable items & notify purchase team.`;
+
+    if (!S.waSent.has(step.id)) {
+      // Step 1: Send WhatsApp to Purchase Team
+      makeBtn(btns, 'W Send WhatsApp to Purchase Team', 'btn btn-wa', () => {
+        S.waSent.add(step.id);
+        showWAToast('Purchase Team notified via WhatsApp');
+        renderAction(); saveState();
+      });
+    } else if (!S.whReceived) {
+      // Step 2: After WA sent, show PO Raised + Item Received in W/H
+      btns.appendChild(sentBadge('✓ Purchase team notified'));
+      makeBtn(btns, '📦 PO Raised — Items Ordered ✓', 'btn btn-amber', () => {
+        // Just a visual cue — not advancing yet
+      });
+      makeBtn(btns, '🏭 Item Received in W/H ✓', 'btn btn-blue', () => {
+        S.whReceived = true;
+        showWAToast('Items received in Warehouse — ready to proceed');
+        renderAction(); saveState();
+      });
+    } else {
+      // Step 3: W/H received, now allow advancing
+      btns.appendChild(sentBadge('✓ Purchase team notified'));
+      btns.appendChild(sentBadge('✓ Items received in W/H'));
+      makeBtn(btns, 'Continue to Dispatch Flow →', 'btn btn-green', advance);
+    }
+
+    makeBtn(btns, '← Back', 'btn btn-back', goBack);
+    return;
+  }
+
+  // ── Approval step (Director) ──────────────────────────────────────────────
+  if (step.id === 'approval') {
+    title.textContent = 'Request dispatch approval from Director.';
+    if (!S.waSent.has(step.id)) {
+      makeBtn(btns, 'W Send Approval Request to Director via WhatsApp', 'btn btn-wa', () => {
+        S.waSent.add(step.id);
+        showWAToast('Approval request sent to Director via WhatsApp');
+        renderAction(); saveState();
+      });
+    } else {
+      btns.appendChild(sentBadge('✓ Approval request sent to Director'));
+      makeBtn(btns, 'Director Approved ✓ — Continue to Transport', 'btn btn-green', advance);
+    }
+    makeBtn(btns, '← Back', 'btn btn-back', goBack);
+    return;
+  }
+
+  // ── Final dispatch step ───────────────────────────────────────────────────
+  if (step.isFinal) {
+    title.textContent = 'Confirm dispatch — Mark the order as dispatched.';
+    makeBtn(btns, '🚀 Mark as Dispatched (Confirm & Close)', 'btn btn-green', advance);
+    makeBtn(btns, '← Back', 'btn btn-back', goBack);
+    return;
+  }
+
+  // ── Generic steps ─────────────────────────────────────────────────────────
+  const labels = {
+    recv:     ['Sales team has shared the SO with OPS.',          'SO Received (Sales to OPS) ✓'],
+    check:    ['OPS team verifies the SO is valid & active.',     'SO Status Checked (OPS) ✓'],
+    placed:   ['OPS team places all items from the SO.',          'Items Placed (OPS) ✓'],
+    verify:   ['OPS team verifies all placed items against SO.',  'Items Verified (OPS) ✓'],
+    transport:['OPS arranges vehicle / transportation.',          'Transport Arranged (OPS) ✓'],
+    packing:  ['OPS prepares the packing list.',                  'Packing List Ready (OPS) ✓'],
+    billing:  ['Accounts team generates the invoice / bill.',     'Billing Done (Accounts) ✓'],
+    billver:  ['OPS verifies items match the bill.',              'Verified vs Bill (OPS) ✓'],
+    loading:  ['OPS team loads items onto the vehicle.',          'Loading Complete (OPS) ✓'],
+    vehicle:  ['Driver / OPS records vehicle entry in system.',   'Vehicle Entry Done (Driver/OPS) ✓'],
+  };
+  const info = labels[step.id] || ['Complete this step.', 'Next →'];
+  title.textContent = info[0];
+  makeBtn(btns, info[1], 'btn btn-green', advance);
+  if (S.cur > 0) makeBtn(btns, '← Back', 'btn btn-back', goBack);
+}
+
+// ─── Navigation helpers ───────────────────────────────────────────────────────
+function advance() {
+  if (current === -1) return;
+  const S     = flows[current].state;
+  const steps = visibleSteps(S);
+  const step  = steps[S.cur];
+  if (step) S.done.add(step.id);
+  S.cur++;
+  renderFlowRow();
+  updateProgress();
+  renderAction();
+  saveState();
+  setTimeout(() => {
+    const row   = document.getElementById('flow-row');
+    if (!row) return;
+    const nodes = row.querySelectorAll('.step-node');
+    if (nodes[S.cur]) nodes[S.cur].scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+  }, 80);
+}
+
+function goBack() {
+  if (current === -1) return;
+  const S     = flows[current].state;
+  if (S.cur <= 0) return;
+  const steps = visibleSteps(S);
+  const prev  = steps[S.cur - 1];
+  if (prev) { S.done.delete(prev.id); S.waSent.delete(prev.id); }
+  if (prev && prev.id === 'avail') { S.branchChoice = null; }
+  if (prev && prev.id === 'purchase') { S.whReceived = false; }
+  S.cur--;
+  renderFlowRow();
+  updateProgress();
+  renderAction();
+  saveState();
+}
+
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+function makeBtn(container, label, cls, onclick) {
+  const b = document.createElement('button');
+  b.className = cls; b.textContent = label; b.onclick = onclick;
+  container.appendChild(b);
+  return b;
+}
+
+function sentBadge(text) {
+  const s = document.createElement('span');
+  s.className = 'sent-badge';
+  s.textContent = text;
+  return s;
+}
+
+function showWAToast(msg) {
+  const toast = document.getElementById('wa-toast');
+  const msgEl = document.getElementById('wa-msg');
+  if (!toast || !msgEl) return;
+  msgEl.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+function openModal() {
+  if (current === -1) return;
+  const S = flows[current].state;
+  document.getElementById('i-cust').value = S.soData.cust;
+  document.getElementById('i-so').value   = S.soData.so;
+  document.getElementById('i-date').value = S.soData.date;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function saveModal() {
+  if (current === -1) return;
+  const S = flows[current].state;
+  S.soData.cust = document.getElementById('i-cust').value.trim() || '—';
+  S.soData.so   = document.getElementById('i-so').value.trim()   || '—';
+  S.soData.date = document.getElementById('i-date').value        || '';
+  closeModal();
+  if (S.cur < 0) { S.cur = 0; }
+  renderAll();
+  saveState();
+}
+
+// Close modal on overlay click
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ─── Init: restore saved state on page load ───────────────────────────────────
+loadState();
+renderTabs();
+renderAll();
+</script>
+</body>
+</html>
